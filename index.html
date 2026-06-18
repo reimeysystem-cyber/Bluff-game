@@ -13,7 +13,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght=500;700;900&family=Noto+Sans+JP:wght@400;500;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght=500;700;900&family=Noto+Sans+JP:wght=400;500;700;900&display=swap');
         
         body {
             font-family: 'Noto Sans JP', 'Cinzel', sans-serif;
@@ -403,6 +403,15 @@
 
     </main>
 
+    <!-- Custom Alert Modal (No browser alert) -->
+    <div id="custom-alert-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl">
+            <div class="text-4xl text-amber-500"><i class="fa-solid fa-circle-exclamation animate-pulse"></i></div>
+            <p id="custom-alert-text" class="text-sm text-slate-300 leading-relaxed"></p>
+            <button onclick="closeCustomAlert()" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-2.5 rounded-xl transition shadow-lg">確認</button>
+        </div>
+    </div>
+
     <!-- Footer with Players HUD (Visible during gameplay) -->
     <footer id="game-hud" class="hidden w-full max-w-4xl mx-auto px-4 py-4 border-t border-slate-800/80 bg-slate-950/60 backdrop-blur-md">
         <div id="hud-players-container" class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -437,8 +446,8 @@
         let unsubscribeRoom = null;
         let roomState = null; // Stored DB Room Snapshot
 
-        // Setup Firebase Configurations (ご提供いただいた設定値)
-        const appId = 'bluff-game-1d0e4'; // あなたのProject IDに変更
+        // Setup Firebase Configurations
+        const appId = 'bluff-game-1d0e4';
         const firebaseConfig = {
             apiKey: "AIzaSyCQD_5MyWU5Wn7LjRnfcU4MrF6rY_jdnRQ",
             authDomain: "bluff-game-1d0e4.firebaseapp.com",
@@ -448,23 +457,44 @@
             appId: "1:999747347474:web:191c7d07d49e018e3224cb"
         };
 
+        // Custom Modal Alert Box replacement for alert()
+        function showCustomAlert(msg) {
+            document.getElementById('custom-alert-text').innerHTML = msg;
+            document.getElementById('custom-alert-modal').classList.remove('hidden');
+        }
+
+        function closeCustomAlert() {
+            document.getElementById('custom-alert-modal').classList.add('hidden');
+        }
+
         // Window Load
         window.addEventListener('load', async () => {
-            // Firebaseの初期化
+            // Firebaseの初期化と匿名ログイン
             try {
                 if (typeof firebase !== 'undefined') {
                     const app = firebase.initializeApp(firebaseConfig);
                     auth = firebase.auth();
                     db = firebase.firestore();
 
-                    // 匿名認証の開始
-                    let user;
+                    // 自動ログイン＆接続の検知
                     const cred = await auth.signInAnonymously();
-                    user = cred.user;
-                    currentUserId = user.uid;
+                    currentUserId = cred.user.uid;
+                } else {
+                    throw new Error("Firebase SDKが正常に読み込めていません。");
                 }
             } catch (e) {
-                console.warn("Firebaseの初期化に失敗しました。オフラインモードのみ動作します。", e);
+                console.error("Firebaseの初期化に失敗しました: ", e);
+                // 確実にDOMが作られてから警告を表示
+                setTimeout(() => {
+                    showCustomAlert(
+                        "<b>⚠️ Firebaseの接続に失敗しました。</b><br>" +
+                        "以下を確認してください：<br>" +
+                        "1. Firebaseコンソールで<b>【匿名認証 (Anonymous)】</b>が有効になっていますか？<br>" +
+                        "2. インターネットに繋がっていますか？<br>" +
+                        "※現在オフラインモード（2人対戦）のみ遊べます。<br><br>" +
+                        "<small class='text-slate-500'>エラー： " + e.message + "</small>"
+                    );
+                }, 500);
             }
         });
 
@@ -699,7 +729,7 @@
                     verdictTitle = "平和な信頼関係";
                     verdictClass = "bg-slate-800 border border-slate-700 text-slate-300";
                     explanation = `
-                        ${attackerName}の宣言：<strong>「 ${declaredVal} MANUAL 」</strong><br>
+                        ${attackerName}の宣言：<strong>「 ${declaredVal} 」</strong><br>
                         実際のカード：<strong>「 ${selectedCardVal} 」</strong> (真実)<br>
                         お互いに正直に、平穏にゲームが流れます。<br>
                         <span class="text-slate-400 font-semibold">ダメージは発生しません。</span>
@@ -899,7 +929,7 @@
 
         function checkFirebaseConnection() {
             if (!db || !auth) {
-                alert("インターネット、またはFirebaseの設定が読み込めていません。オフラインモードでプレイしてください。");
+                showCustomAlert("インターネット、またはFirebaseの設定が読み込めていません。オフラインモードでプレイしてください。");
                 return false;
             }
             return true;
@@ -912,39 +942,59 @@
             const username = usernameInput !== "" ? usernameInput : "ホスト";
 
             if (!auth.currentUser) {
-                alert("プレイヤー認証中です。しばらくお待ちください。");
+                showCustomAlert("プレイヤー認証中です。数秒待ってからもう一度お試しください。");
                 return;
             }
 
             const roomId = Math.floor(100000 + Math.random() * 900000).toString();
             currentRoomId = roomId;
 
-            // Strict Path (Rule 1)
-            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${roomId}`);
+            try {
+                // Strict Path (Rule 1: /artifacts/{appId}/public/data/rooms/{roomId})
+                const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${roomId}`);
 
-            const initialData = {
-                roomId: roomId,
-                status: 'waiting',
-                currentRound: 1,
-                activePlayerIndex: 0,
-                defendingPlayerIndex: 1,
-                selectedCardType: null,
-                selectedCardVal: null,
-                declaredVal: null,
-                lastAction: 'init',
-                players: [{
-                    uid: auth.currentUser.uid,
-                    name: username,
-                    hearts: 3,
-                    ready: true
-                }],
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            };
+                const initialData = {
+                    roomId: roomId,
+                    status: 'waiting',
+                    currentRound: 1,
+                    activePlayerIndex: 0,
+                    defendingPlayerIndex: 1,
+                    selectedCardType: null,
+                    selectedCardVal: null,
+                    declaredVal: null,
+                    lastAction: 'init',
+                    players: [{
+                        uid: auth.currentUser.uid,
+                        name: username,
+                        hearts: 3,
+                        ready: true
+                    }],
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
 
-            await roomRef.set(initialData);
+                await roomRef.set(initialData);
 
-            setupRoomListener(roomId);
-            showLobby(roomId, true);
+                setupRoomListener(roomId);
+                showLobby(roomId, true);
+            } catch (error) {
+                console.error("ルーム作成エラー: ", error);
+                showCustomAlert(
+                    "<b>❌ ルームの作成に失敗しました。</b><br><br>" +
+                    "<b>【原因と対策】</b><br>" +
+                    "Firestoreの<b>「セキュリティルール」</b>が正しく設定されていない可能性があります。<br>" +
+                    "FirebaseコンソールのRulesを開き、現在の設定を以下のように更新してください：<br>" +
+                    "<pre class='text-left bg-slate-950 p-2 text-xs text-emerald-400 overflow-x-auto rounded mt-2'>" +
+                    "rules_version = '2';\n" +
+                    "service cloud.firestore {\n" +
+                    "  match /databases/{database}/documents {\n" +
+                    "    match /artifacts/bluff-game-1d0e4/public/data/rooms/{roomId} {\n" +
+                    "      allow read, write: if request.auth != null;\n" +
+                    "    }\n" +
+                    "  }\n" +
+                    "}</pre><br>" +
+                    "<small class='text-slate-500'>エラー詳細: " + error.message + "</small>"
+                );
+            }
         }
 
         async function joinOnlineRoom() {
@@ -955,49 +1005,54 @@
             const roomId = document.getElementById('room-key-input').value.trim().toUpperCase();
 
             if (roomId.length === 0) {
-                alert("ルームキーを入力してください。");
+                showCustomAlert("ルームキーを入力してください。");
                 return;
             }
 
             if (!auth.currentUser) {
-                alert("プレイヤー認証中です。しばらくお待ちください。");
+                showCustomAlert("プレイヤー認証中です。しばらくお待ちください。");
                 return;
             }
 
-            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${roomId}`);
-            const doc = await roomRef.get();
+            try {
+                const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${roomId}`);
+                const doc = await roomRef.get();
 
-            if (!doc.exists) {
-                alert("入力されたルームが見つかりません。");
-                return;
+                if (!doc.exists) {
+                    showCustomAlert("入力されたルームが見つかりません。");
+                    return;
+                }
+
+                const data = doc.data();
+                if (data.status !== 'waiting') {
+                    showCustomAlert("このゲームは既に開始されているか、終了しています。");
+                    return;
+                }
+
+                if (data.players.length >= 4) {
+                    showCustomAlert("ルームが満員です（最大4人）。");
+                    return;
+                }
+
+                const updatedPlayers = [...data.players, {
+                    uid: auth.currentUser.uid,
+                    name: username,
+                    hearts: 3,
+                    ready: true
+                }];
+
+                await roomRef.update({
+                    players: updatedPlayers,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                currentRoomId = roomId;
+                setupRoomListener(roomId);
+                showLobby(roomId, false);
+            } catch (error) {
+                console.error("ルーム参加エラー: ", error);
+                showCustomAlert("ルーム参加に失敗しました。<br>エラー: " + error.message);
             }
-
-            const data = doc.data();
-            if (data.status !== 'waiting') {
-                alert("このゲームは既に開始されているか、終了しています。");
-                return;
-            }
-
-            if (data.players.length >= 4) {
-                alert("ルームが満員です（最大4人）。");
-                return;
-            }
-
-            const updatedPlayers = [...data.players, {
-                uid: auth.currentUser.uid,
-                name: username,
-                hearts: 3,
-                ready: true
-            }];
-
-            await roomRef.update({
-                players: updatedPlayers,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-
-            currentRoomId = roomId;
-            setupRoomListener(roomId);
-            showLobby(roomId, false);
         }
 
         function showLobby(roomId, isHost) {
@@ -1049,6 +1104,7 @@
                 }
             }, error => {
                 console.error("通信エラーが発生しました: ", error);
+                showCustomAlert("リアルタイム同期でエラーが発生しました。<br>詳細: " + error.message);
             });
         }
 
@@ -1079,22 +1135,26 @@
 
         async function startOnlineMatch() {
             if (!roomState || roomState.players.length < 2) {
-                alert("対戦相手が足りません。2人以上で開始できます。");
+                showCustomAlert("対戦相手が足りません。2人以上で開始できます。");
                 return;
             }
 
-            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
-            
-            const starter = Math.floor(Math.random() * roomState.players.length);
-            const defender = (starter + 1) % roomState.players.length;
+            try {
+                const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
+                
+                const starter = Math.floor(Math.random() * roomState.players.length);
+                const defender = (starter + 1) % roomState.players.length;
 
-            await roomRef.update({
-                status: 'playing',
-                activePlayerIndex: starter,
-                defendingPlayerIndex: defender,
-                lastAction: 'start',
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+                await roomRef.update({
+                    status: 'playing',
+                    activePlayerIndex: starter,
+                    defendingPlayerIndex: defender,
+                    lastAction: 'start',
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (error) {
+                showCustomAlert("マッチ開始に失敗しました: " + error.message);
+            }
         }
 
         function runOnlineGameLoop(data) {
@@ -1133,172 +1193,187 @@
         }
 
         async function commitOnlineCard() {
-            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
-            
-            await roomRef.update({
-                selectedCardType: selectedCardType,
-                selectedCardVal: selectedCardVal,
-                declaredVal: declaredVal,
-                lastAction: 'commit_card',
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+            try {
+                const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
+                await roomRef.update({
+                    selectedCardType: selectedCardType,
+                    selectedCardVal: selectedCardVal,
+                    declaredVal: declaredVal,
+                    lastAction: 'commit_card',
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (error) {
+                showCustomAlert("カードの提出に失敗しました: " + error.message);
+            }
         }
 
         async function commitOnlineReaction(didChallenge) {
-            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
-            
-            let isLie = false;
-            if (roomState.selectedCardType === 'conspiracy') {
-                isLie = true;
-            } else if (roomState.selectedCardType === 'num' && roomState.selectedCardVal !== roomState.declaredVal) {
-                isLie = true;
-            }
-
-            let attackerDamage = 0;
-            let defenderDamage = 0;
-            let verdictTitle = "";
-            let verdictClass = "";
-            let explanation = "";
-
-            const attackerName = roomState.players[roomState.activePlayerIndex].name;
-            const defenderName = roomState.players[roomState.defendingPlayerIndex].name;
-
-            if (didChallenge) {
+            try {
+                const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
+                
+                let isLie = false;
                 if (roomState.selectedCardType === 'conspiracy') {
-                    defenderDamage = 2;
-                    verdictTitle = "陰謀の罠 発動！";
-                    verdictClass = "bg-purple-900/80 border border-purple-500 text-purple-200";
-                    explanation = `
-                        ${attackerName}が裏向きで出したのは<strong>【 陰謀 】</strong>カードでした！<br>
-                        ${defenderName}はだましを指摘しましたが、罠に掛かってしまいました。<br>
-                        <span class="text-red-400 font-bold">${defenderName} は 2 ダメージ！</span>
-                    `;
-                } else if (isLie) {
-                    attackerDamage = 1;
-                    verdictTitle = "だまし指摘：成功！";
-                    verdictClass = "bg-emerald-900/80 border border-emerald-500 text-emerald-200";
-                    explanation = `
-                        ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
-                        実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (だまし)<br>
-                        ${defenderName}が見事、嘘を見破りました！<br>
-                        <span class="text-red-400 font-bold">${attackerName} は 1 ダメージ！</span>
-                    `;
-                } else {
-                    defenderDamage = 1;
-                    verdictTitle = "だまし指摘：失敗！";
-                    verdictClass = "bg-red-900/80 border border-red-500 text-red-200";
-                    explanation = `
-                        ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
-                        実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (真実)<br>
-                        ${attackerName}は本当に正直にカードを出していました！<br>
-                        <span class="text-red-400 font-bold">${defenderName} は 1 ダメージ！</span>
-                    `;
+                    isLie = true;
+                } else if (roomState.selectedCardType === 'num' && roomState.selectedCardVal !== roomState.declaredVal) {
+                    isLie = true;
                 }
-            } else {
-                if (roomState.selectedCardType === 'conspiracy') {
-                    attackerDamage = 1;
-                    verdictTitle = "陰謀失敗 (スルー)";
-                    verdictClass = "bg-amber-900/80 border border-amber-600 text-amber-200";
-                    explanation = `
-                        ${attackerName}は<strong>【 陰謀 】</strong>を仕掛けましたが、スルーされました。<br>
-                        陰謀が誰にも引っかからなかったため、仕掛けた自身がペナルティを受けます。<br>
-                        <span class="text-red-400 font-bold">${attackerName} は 1 ダメージ！</span>
-                    `;
-                } else if (isLie) {
-                    verdictTitle = "だまし成功！";
-                    verdictClass = "bg-slate-800 border border-slate-700 text-slate-300";
-                    explanation = `
-                        ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
-                        実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (だまし)<br>
-                        ${defenderName}は信じることを選び、嘘は見破られませんでした。<br>
-                        <span class="text-slate-400 font-semibold">ダメージは発生しません。</span>
-                    `;
+
+                let attackerDamage = 0;
+                let defenderDamage = 0;
+                let verdictTitle = "";
+                let verdictClass = "";
+                let explanation = "";
+
+                const attackerName = roomState.players[roomState.activePlayerIndex].name;
+                const defenderName = roomState.players[roomState.defendingPlayerIndex].name;
+
+                if (didChallenge) {
+                    if (roomState.selectedCardType === 'conspiracy') {
+                        defenderDamage = 2;
+                        verdictTitle = "陰謀の罠 発動！";
+                        verdictClass = "bg-purple-900/80 border border-purple-500 text-purple-200";
+                        explanation = `
+                            ${attackerName}が裏向きで出したのは<strong>【 陰謀 】</strong>カードでした！<br>
+                            ${defenderName}はだましを指摘しましたが、罠に掛かってしまいました。<br>
+                            <span class="text-red-400 font-bold">${defenderName} は 2 ダメージ！</span>
+                        `;
+                    } else if (isLie) {
+                        attackerDamage = 1;
+                        verdictTitle = "だまし指摘：成功！";
+                        verdictClass = "bg-emerald-900/80 border border-emerald-500 text-emerald-200";
+                        explanation = `
+                            ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
+                            実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (だまし)<br>
+                            ${defenderName}が見事、嘘を見破りました！<br>
+                            <span class="text-red-400 font-bold">${attackerName} は 1 ダメージ！</span>
+                        `;
+                    } else {
+                        defenderDamage = 1;
+                        verdictTitle = "だまし指摘：失敗！";
+                        verdictClass = "bg-red-900/80 border border-red-500 text-red-200";
+                        explanation = `
+                            ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
+                            実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (真実)<br>
+                            ${attackerName}は本当に正直にカードを出していました！<br>
+                            <span class="text-red-400 font-bold">${defenderName} は 1 ダメージ！</span>
+                        `;
+                    }
                 } else {
-                    verdictTitle = "平和な信頼関係";
-                    verdictClass = "bg-slate-800 border border-slate-700 text-slate-300";
-                    explanation = `
-                        ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
-                        実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (真実)<br>
-                        お互いに正直に、平穏にゲームが流れます。<br>
-                        <span class="text-slate-400 font-semibold">ダメージは発生しません。</span>
-                    `;
+                    if (roomState.selectedCardType === 'conspiracy') {
+                        attackerDamage = 1;
+                        verdictTitle = "陰謀失敗 (スルー)";
+                        verdictClass = "bg-amber-900/80 border border-amber-600 text-amber-200";
+                        explanation = `
+                            ${attackerName}は<strong>【 陰謀 】</strong>を仕掛けましたが、スルーされました。<br>
+                            陰謀が誰にも引っかからなかったため、仕掛けた自身がペナルティを受けます。<br>
+                            <span class="text-red-400 font-bold">${attackerName} は 1 ダメージ！</span>
+                        `;
+                    } else if (isLie) {
+                        verdictTitle = "だまし成功！";
+                        verdictClass = "bg-slate-800 border border-slate-700 text-slate-300";
+                        explanation = `
+                            ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
+                            実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (だまし)<br>
+                            ${defenderName}は信じることを選び、嘘は見破られませんでした。<br>
+                            <span class="text-slate-400 font-semibold">ダメージは発生しません。</span>
+                        `;
+                    } else {
+                        verdictTitle = "平和な信頼関係";
+                        verdictClass = "bg-slate-800 border border-slate-700 text-slate-300";
+                        explanation = `
+                            ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
+                            実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (真実)<br>
+                            お互いに正直に、平穏にゲームが流れます。<br>
+                            <span class="text-slate-400 font-semibold">ダメージは発生しません。</span>
+                        `;
+                    }
                 }
+
+                const updatedPlayers = roomState.players.map((p, idx) => {
+                    let currentHearts = p.hearts;
+                    if (idx === roomState.activePlayerIndex) {
+                        currentHearts = Math.max(0, currentHearts - attackerDamage);
+                    }
+                    if (idx === roomState.defendingPlayerIndex) {
+                        currentHearts = Math.max(0, currentHearts - defenderDamage);
+                    }
+                    return { ...p, hearts: currentHearts };
+                });
+
+                await roomRef.update({
+                    status: 'showing_result',
+                    players: updatedPlayers,
+                    actionResult: {
+                        verdictTitle: verdictTitle,
+                        verdictClass: verdictClass,
+                        explanation: explanation
+                    },
+                    lastAction: 'resolve',
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (error) {
+                showCustomAlert("アクションの決定に失敗しました: " + error.message);
             }
-
-            const updatedPlayers = roomState.players.map((p, idx) => {
-                let currentHearts = p.hearts;
-                if (idx === roomState.activePlayerIndex) {
-                    currentHearts = Math.max(0, currentHearts - attackerDamage);
-                }
-                if (idx === roomState.defendingPlayerIndex) {
-                    currentHearts = Math.max(0, currentHearts - defenderDamage);
-                }
-                return { ...p, hearts: currentHearts };
-            });
-
-            await roomRef.update({
-                status: 'showing_result',
-                players: updatedPlayers,
-                actionResult: {
-                    verdictTitle: verdictTitle,
-                    verdictClass: verdictClass,
-                    explanation: explanation
-                },
-                lastAction: 'resolve',
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
         }
 
         async function advanceOnlineTurn() {
-            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
+            try {
+                const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
 
-            const someoneDied = roomState.players.some(p => p.hearts <= 0);
-            
-            const nextActiveIndex = (roomState.activePlayerIndex + 1) % roomState.players.length;
-            const nextDefendingIndex = (nextActiveIndex + 1) % roomState.players.length;
+                const someoneDied = roomState.players.some(p => p.hearts <= 0);
+                
+                const nextActiveIndex = (roomState.activePlayerIndex + 1) % roomState.players.length;
+                const nextDefendingIndex = (nextActiveIndex + 1) % roomState.players.length;
 
-            let nextRound = roomState.currentRound;
-            if (nextActiveIndex === 0) {
-                nextRound += 1;
-            }
+                let nextRound = roomState.currentRound;
+                if (nextActiveIndex === 0) {
+                    nextRound += 1;
+                }
 
-            if (someoneDied || nextRound > 4) {
+                if (someoneDied || nextRound > 4) {
+                    await roomRef.update({
+                        status: 'gameover',
+                        lastAction: 'gameover',
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    return;
+                }
+
                 await roomRef.update({
-                    status: 'gameover',
-                    lastAction: 'gameover',
+                    status: 'playing',
+                    currentRound: nextRound,
+                    activePlayerIndex: nextActiveIndex,
+                    defendingPlayerIndex: nextDefendingIndex,
+                    lastAction: 'next_turn',
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
-                return;
+            } catch (error) {
+                showCustomAlert("次のターンへの移行に失敗しました: " + error.message);
             }
-
-            await roomRef.update({
-                status: 'playing',
-                currentRound: nextRound,
-                activePlayerIndex: nextActiveIndex,
-                defendingPlayerIndex: nextDefendingIndex,
-                lastAction: 'next_turn',
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
         }
 
         async function leaveOnlineRoom() {
             if (unsubscribeRoom) unsubscribeRoom();
             
-            if (currentRoomId && auth.currentUser) {
-                const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
-                const doc = await roomRef.get();
-                if (doc.exists) {
-                    const data = doc.data();
-                    const filtered = data.players.filter(p => p.uid !== auth.currentUser.uid);
-                    
-                    if (filtered.length === 0) {
-                        await roomRef.delete();
-                    } else {
-                        await roomRef.update({
-                            players: filtered
-                        });
+            try {
+                if (currentRoomId && auth.currentUser) {
+                    const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
+                    const doc = await roomRef.get();
+                    if (doc.exists) {
+                        const data = doc.data();
+                        const filtered = data.players.filter(p => p.uid !== auth.currentUser.uid);
+                        
+                        if (filtered.length === 0) {
+                            await roomRef.delete();
+                        } else {
+                            await roomRef.update({
+                                players: filtered
+                            });
+                        }
                     }
                 }
+            } catch (error) {
+                console.warn("退室のクリーンアップに失敗しました: ", error);
             }
             
             currentRoomId = null;
