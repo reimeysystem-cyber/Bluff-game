@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>だましと陰謀 - Online & Offline Bluff Game</title>
+    <!-- Tailwind CSS for elegant styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome for beautiful icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Firebase Compat SDKs (For Real-time Online Sync) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght=500;700;900&family=Noto+Sans+JP:wght@400;500;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans JP', 'Cinzel', sans-serif;
+            background: radial-gradient(circle, #1a1c29 0%, #0d0e15 100%);
+            color: #e2e8f0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .gold-border {
+            border: 2px solid #d4af37;
+            box-shadow: 0 0 15px rgba(212, 175, 55, 0.2);
+        }
+
+        .gold-text {
+            color: #f3e5ab;
+            text-shadow: 0 0 8px rgba(212, 175, 55, 0.5);
+        }
+
+        /* Card styles with premium texture */
+        .game-card {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 2px solid #334155;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        .game-card.selected {
+            border-color: #f59e0b;
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+            transform: translateY(-8px);
+        }
+
+        .card-back {
+            background: repeating-linear-gradient(
+                45deg,
+                #1e1b4b,
+                #1e1b4b 10px,
+                #312e81 10px,
+                #312e81 20px
+            );
+            border: 3px double #d4af37;
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0d0e15;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between overflow-x-hidden">
+
+    <!-- Header / Status Bar -->
+    <header class="w-full max-w-4xl mx-auto px-4 py-3 flex justify-between items-center border-b border-slate-800">
+        <div class="flex items-center space-x-2">
+            <span class="text-2xl">🔮</span>
+            <h1 class="text-xl font-bold tracking-wider uppercase font-serif gold-text">だましと陰謀</h1>
+        </div>
+        <div class="flex items-center space-x-2">
+            <span id="online-badge" class="hidden bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded text-xs font-bold">ONLINE</span>
+            <div id="round-indicator" class="bg-slate-800/80 px-4 py-1.5 rounded-full border border-slate-700 text-sm font-semibold text-amber-400">
+                ROUND <span id="current-round">1</span> / 4
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Game Arena -->
+    <main class="flex-grow flex flex-col items-center justify-center p-4 w-full max-w-4xl mx-auto">
+        
+        <!-- MODE SELECTION / START SCREEN -->
+        <div id="screen-start" class="w-full max-w-md bg-slate-900/90 rounded-2xl p-6 border border-slate-800 shadow-2xl text-center space-y-6">
+            <div class="space-y-2">
+                <div class="text-6xl mb-2">🃏✨</div>
+                <h2 class="text-3xl font-extrabold gold-text font-serif">欺きと策略の心理戦</h2>
+                <p class="text-xs text-slate-400">だましを見破るか、陰謀の罠に嵌めるか</p>
+            </div>
+
+            <!-- Mode Selector Tabs -->
+            <div class="grid grid-cols-2 gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                <button id="tab-offline" onclick="switchMode('offline')" class="py-2.5 rounded-lg text-sm font-bold transition-all bg-amber-500 text-slate-950">
+                    <i class="fa-solid fa-users-slash mr-1"></i>オフライン (2人)
+                </button>
+                <button id="tab-online" onclick="switchMode('online')" class="py-2.5 rounded-lg text-sm font-bold transition-all text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-globe mr-1"></i>オンライン (2〜4人)
+                </button>
+            </div>
+
+            <!-- OFFLINE FORM -->
+            <div id="form-offline" class="space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs text-left text-slate-400 mb-1">プレイヤー 1</label>
+                        <input type="text" id="p1-name-input" value="プレイヤーA" maxlength="8" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:border-amber-500 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-left text-slate-400 mb-1">プレイヤー 2</label>
+                        <input type="text" id="p2-name-input" value="プレイヤーB" maxlength="8" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:border-amber-500 text-white">
+                    </div>
+                </div>
+                <button onclick="startOfflineGame()" class="w-full bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-slate-950 font-black py-3 rounded-xl shadow-lg transform transition active:scale-95 text-lg">
+                    オフライン対戦 開始！
+                </button>
+            </div>
+
+            <!-- ONLINE FORM -->
+            <div id="form-online" class="hidden space-y-4 text-left">
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">あなたの名前</label>
+                        <input type="text" id="online-username" value="プレイヤー" maxlength="8" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 text-white">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 pt-1">
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">新しいルームを作る</label>
+                            <button onclick="createOnlineRoom()" class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 text-xs font-bold py-2.5 rounded-lg transition flex items-center justify-center space-x-1">
+                                <i class="fa-solid fa-plus-circle"></i>
+                                <span>ルーム新規作成</span>
+                            </button>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">ルームキーを入力して入る</label>
+                            <div class="flex space-x-1">
+                                <input type="text" id="room-key-input" placeholder="例: 1234" maxlength="6" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:border-amber-500 text-white uppercase font-mono">
+                                <button onclick="joinOnlineRoom()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold px-3 rounded-lg transition">
+                                    参入
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rules Quick View -->
+            <div class="bg-slate-950/80 p-4 rounded-xl text-left text-xs space-y-2 border border-slate-800 leading-relaxed text-slate-300">
+                <div class="font-bold text-amber-400 border-b border-slate-800 pb-1 text-center text-sm">💡 ルール概要 💡</div>
+                <p>① 手番プレイヤーはカードを1枚伏せて出し、1〜6の数字を宣言します（嘘でもOK！）。</p>
+                <p>② 次のプレイヤーはそれを<strong>「信じる」</strong>か<strong>「ダウト！」</strong>か選択します。</p>
+                <div class="bg-slate-900 p-2 rounded border border-amber-500/20 space-y-1 mt-1 text-[11px]">
+                    <p><span class="text-red-400 font-bold">● 指摘 成功：</span> 嘘をついた側が <span class="text-red-400">1ダメージ</span></p>
+                    <p><span class="text-emerald-400 font-bold">● 指摘 失敗：</span> 本当のことを言っていた場合、指摘した側が <span class="text-red-400">1ダメージ</span></p>
+                    <p><span class="text-purple-400 font-bold">● 陰謀の罠：</span> 陰謀カードを指摘すると、見事に罠に嵌まり指摘した側が <span class="text-red-400">2ダメージ</span>！</p>
+                    <p><span class="text-amber-400 font-bold">● 陰謀スルー：</span> 誰にも指摘されずスルーされると、罠を仕掛けた側（出した人）が自滅して <span class="text-red-400">1ダメージ</span>。</p>
+                </div>
+                <p class="text-center text-slate-400 mt-1">※ライフは <span class="text-red-500">❤️3個</span>。全4ラウンド終了時、最も多くライフを残した人の勝利！</p>
+            </div>
+        </div>
+
+        <!-- LOBBY SCREEN (Online Only) -->
+        <div id="screen-lobby" class="hidden w-full max-w-md bg-slate-900/90 rounded-2xl p-6 border border-slate-800 shadow-2xl text-center space-y-6">
+            <div class="space-y-1">
+                <span class="text-xs uppercase text-amber-500 tracking-widest font-bold">ONLINE LOBBY</span>
+                <h2 class="text-3xl font-extrabold text-slate-100">待機ルーム</h2>
+                <div class="flex justify-center items-center space-x-2 bg-slate-950 py-2.5 px-4 rounded-xl border border-slate-800 max-w-xs mx-auto mt-2">
+                    <span class="text-xs text-slate-400 font-bold">ルームキー:</span>
+                    <span id="lobby-room-key" class="text-xl font-mono font-bold text-amber-400 tracking-wider">----</span>
+                </div>
+            </div>
+
+            <!-- Player List -->
+            <div class="space-y-2 text-left">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider pl-1">参加メンバー (<span id="lobby-player-count">0</span> / 4人)</h3>
+                <div id="lobby-player-list" class="space-y-2">
+                    <!-- Loaded dynamically -->
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <button id="btn-lobby-start" onclick="startOnlineMatch()" class="hidden w-full bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-slate-950 font-black py-3 rounded-xl shadow-lg transition transform active:scale-95 text-md">
+                    対戦を開始する！ (2人以上)
+                </button>
+                <p id="lobby-wait-msg" class="text-xs text-slate-400 text-center animate-pulse">ホストがゲームを開始するのを待っています...</p>
+                <button onclick="leaveOnlineRoom()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold py-2 rounded-xl text-xs transition">
+                    退室する
+                </button>
+            </div>
+        </div>
+
+        <!-- TRANSITION / PASS SCREEN (To prevent peeking in Offline mode) -->
+        <div id="screen-transition" class="hidden w-full max-w-md bg-slate-900/95 rounded-2xl p-8 border-2 border-dashed border-amber-500/40 shadow-2xl text-center space-y-6 my-auto">
+            <div class="text-6xl animate-bounce">🙈</div>
+            <div class="space-y-2">
+                <h3 class="text-xl text-slate-400">相手に画面を見られないようにしてください！</h3>
+                <h2 class="text-3xl font-extrabold text-amber-400" id="next-player-title">プレイヤーA の番です</h2>
+            </div>
+            <p class="text-sm text-slate-400 leading-relaxed">準備ができたら、ボタンを押してカードを選んでください。</p>
+            <button onclick="proceedToTurn()" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-3.5 rounded-xl shadow-lg transition transform active:scale-95 text-md">
+                画面を確認して進む
+            </button>
+        </div>
+
+        <!-- WAITING FOR OTHER PLAYERS SCREEN (Online Mode Only) -->
+        <div id="screen-online-wait" class="hidden w-full max-w-md bg-slate-900/90 rounded-2xl p-8 border border-slate-800 shadow-2xl text-center space-y-6 my-auto">
+            <div class="text-5xl animate-spin text-amber-500 flex justify-center">
+                <i class="fa-solid fa-circle-notch"></i>
+            </div>
+            <div class="space-y-2">
+                <h2 class="text-2xl font-black text-slate-100" id="online-wait-title">対戦相手を待っています</h2>
+                <p class="text-sm text-slate-400" id="online-wait-subtitle">相手がカードを選択、または決断を下しています...</p>
+            </div>
+        </div>
+
+        <!-- ACTION SCREEN: CHOOSE CARD -->
+        <div id="screen-choose-card" class="hidden w-full space-y-6">
+            <!-- Turn Header -->
+            <div class="text-center space-y-1">
+                <h2 class="text-2xl font-black text-slate-200"><span id="active-player-name" class="text-amber-400">プレイヤーA</span> のターン</h2>
+                <p class="text-sm text-slate-400">裏向きで提出するカードを1枚選んでください</p>
+            </div>
+
+            <!-- Cards Selection Grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 justify-center max-w-2xl mx-auto">
+                <!-- Numbers 1-6 -->
+                <div class="game-card cursor-pointer rounded-xl p-4 flex flex-col items-center justify-between aspect-[3/4] hover:-translate-y-2" onclick="selectCard('num', 1)">
+                    <span class="text-xs text-slate-500">CARD</span>
+                    <span class="text-4xl font-extrabold text-white">1</span>
+                    <span class="text-xs text-amber-500/80">数字カード</span>
+                </div>
+                <div class="game-card cursor-pointer rounded-xl p-4 flex flex-col items-center justify-between aspect-[3/4] hover:-translate-y-2" onclick="selectCard('num', 2)">
+                    <span class="text-xs text-slate-500">CARD</span>
+                    <span class="text-4xl font-extrabold text-white">2</span>
+                    <span class="text-xs text-amber-500/80">数字カード</span>
+                </div>
+                <div class="game-card cursor-pointer rounded-xl p-4 flex flex-col items-center justify-between aspect-[3/4] hover:-translate-y-2" onclick="selectCard('num', 3)">
+                    <span class="text-xs text-slate-500">CARD</span>
+                    <span class="text-4xl font-extrabold text-white">3</span>
+                    <span class="text-xs text-amber-500/80">数字カード</span>
+                </div>
+                <div class="game-card cursor-pointer rounded-xl p-4 flex flex-col items-center justify-between aspect-[3/4] hover:-translate-y-2" onclick="selectCard('num', 4)">
+                    <span class="text-xs text-slate-500">CARD</span>
+                    <span class="text-4xl font-extrabold text-white">4</span>
+                    <span class="text-xs text-amber-500/80">数字カード</span>
+                </div>
+                <div class="game-card cursor-pointer rounded-xl p-4 flex flex-col items-center justify-between aspect-[3/4] hover:-translate-y-2" onclick="selectCard('num', 5)">
+                    <span class="text-xs text-slate-500">CARD</span>
+                    <span class="text-4xl font-extrabold text-white">5</span>
+                    <span class="text-xs text-amber-500/80">数字カード</span>
+                </div>
+                <div class="game-card cursor-pointer rounded-xl p-4 flex flex-col items-center justify-between aspect-[3/4] hover:-translate-y-2" onclick="selectCard('num', 6)">
+                    <span class="text-xs text-slate-500">CARD</span>
+                    <span class="text-4xl font-extrabold text-white">6</span>
+                    <span class="text-xs text-amber-500/80">数字カード</span>
+                </div>
+
+                <!-- Conspiracy Card -->
+                <div class="game-card border-purple-900/60 cursor-pointer rounded-xl p-4 flex flex-col items-center justify-between aspect-[3/4] hover:-translate-y-2 col-span-2 sm:col-span-2" onclick="selectCard('conspiracy', 0)">
+                    <div class="flex items-center justify-between w-full">
+                        <span class="text-[10px] text-purple-400 font-bold uppercase tracking-wider">SPECIAL</span>
+                        <i class="fa-solid fa-mask text-purple-400 text-xs"></i>
+                    </div>
+                    <div class="text-center">
+                        <span class="text-3xl">🕸️</span>
+                        <h4 class="text-base font-black text-purple-300 mt-1">陰謀 (TRAP)</h4>
+                    </div>
+                    <span class="text-[10px] text-purple-400 text-center leading-tight">スルーで自滅<br>ダウト指摘で相手-2♥</span>
+                </div>
+            </div>
+
+            <!-- Declarations Area (Shows after card selection) -->
+            <div id="declaration-panel" class="hidden max-w-md mx-auto bg-slate-900 p-5 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
+                <div class="text-center">
+                    <span class="text-xs uppercase text-slate-400 tracking-wider">DECLARATION</span>
+                    <h3 class="text-lg font-bold text-slate-200 mt-1">このカードを何と嘘・宣言して出しますか？</h3>
+                </div>
+                
+                <!-- Declaration Buttons (1-6) -->
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="setDeclaration(1)" class="dec-btn bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg border border-slate-700 transition">1</button>
+                    <button onclick="setDeclaration(2)" class="dec-btn bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg border border-slate-700 transition">2</button>
+                    <button onclick="setDeclaration(3)" class="dec-btn bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg border border-slate-700 transition">3</button>
+                    <button onclick="setDeclaration(4)" class="dec-btn bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg border border-slate-700 transition">4</button>
+                    <button onclick="setDeclaration(5)" class="dec-btn bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg border border-slate-700 transition">5</button>
+                    <button onclick="setDeclaration(6)" class="dec-btn bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg border border-slate-700 transition">6</button>
+                </div>
+
+                <div class="text-center text-xs text-slate-400 bg-slate-950 p-2.5 rounded border border-slate-800/80">
+                    選んだカード: <span id="selected-card-preview" class="text-amber-400 font-bold">未選択</span>
+                </div>
+
+                <button id="btn-submit-card" disabled onclick="submitCardAction()" class="w-full bg-slate-700 text-slate-400 font-bold py-3 rounded-xl cursor-not-allowed transition">
+                    カードを伏せて提出
+                </button>
+            </div>
+        </div>
+
+        <!-- ACTION SCREEN: COUNTER / CHALLENGE (The opponent's turn to react) -->
+        <div id="screen-challenge" class="hidden w-full max-w-md bg-slate-900/90 rounded-2xl p-6 border border-slate-800 shadow-2xl space-y-6">
+            <div class="text-center space-y-1">
+                <span class="text-xs uppercase text-slate-400 tracking-wider">CHALLENGE PHASE</span>
+                <h2 class="text-2xl font-black text-slate-200"><span id="defender-player-name" class="text-teal-400">プレイヤーB</span> の決断</h2>
+            </div>
+
+            <!-- The Facedown Card Display -->
+            <div class="flex flex-col items-center space-y-3 py-2">
+                <div class="card-back w-32 aspect-[3/4] rounded-2xl flex flex-col items-center justify-center text-slate-300 shadow-xl relative overflow-hidden">
+                    <span class="text-4xl">❓</span>
+                </div>
+                <div class="text-center space-y-1">
+                    <p class="text-sm text-slate-400"><span id="attacker-player-name" class="font-bold text-slate-300">プレイヤーA</span> の宣言：</p>
+                    <p class="text-3xl font-extrabold text-amber-400">「このカードは <span id="declared-value" class="underline font-serif">3</span> です」</p>
+                </div>
+            </div>
+
+            <!-- Decision Options -->
+            <div class="grid grid-cols-2 gap-4">
+                <!-- Believe Option -->
+                <button onclick="reactToCard(false)" class="flex flex-col items-center justify-center bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-xl p-4 transition transform active:scale-95 group">
+                    <span class="text-3xl mb-1 group-hover:scale-110 transition">🤝</span>
+                    <span class="text-base font-bold text-emerald-400">信じる (スルー)</span>
+                    <span class="text-[10px] text-slate-400 mt-1 text-center">相手が正直なら無事。<br>もし陰謀なら相手自滅。</span>
+                </button>
+
+                <!-- Doubt Option (Doubt!) -->
+                <button onclick="reactToCard(true)" class="flex flex-col items-center justify-center bg-red-950/40 hover:bg-red-950/60 border border-red-900/50 rounded-xl p-4 transition transform active:scale-95 group">
+                    <span class="text-3xl mb-1 group-hover:scale-110 transition">💥</span>
+                    <span class="text-base font-bold text-red-400">だましを指摘！</span>
+                    <span class="text-[10px] text-slate-400 mt-1 text-center">嘘なら相手ダメージ！<br>陰謀なら自分 -2♥</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- ACTION SCREEN: RESULT (Reveals card and damage) -->
+        <div id="screen-result" class="hidden w-full max-w-md bg-slate-900/90 rounded-2xl p-6 border-2 border-slate-800 shadow-2xl space-y-6">
+            <div class="text-center space-y-1">
+                <span class="text-xs uppercase text-slate-400 tracking-wider">RESULT</span>
+                <h2 class="text-2xl font-black text-slate-200" id="result-status-title">結果発表</h2>
+            </div>
+
+            <!-- Card Reveal Animation Space -->
+            <div class="flex justify-center py-2">
+                <div id="revealed-card" class="game-card w-36 aspect-[3/4] rounded-2xl flex flex-col items-center justify-between p-4 shadow-2xl transform transition-all duration-500">
+                    <span class="text-xs text-slate-400">REVEALED</span>
+                    <span id="revealed-card-val" class="text-5xl font-black text-white">1</span>
+                    <span id="revealed-card-type" class="text-xs text-slate-400">カード</span>
+                </div>
+            </div>
+
+            <!-- Explanation Text -->
+            <div class="bg-slate-950/80 p-4 rounded-xl text-center space-y-2 border border-slate-800">
+                <p id="result-text-detail" class="text-sm text-slate-300 leading-relaxed">
+                    プレイヤーAが宣言した数字：<strong class="text-amber-400 text-lg">3</strong><br>
+                    実際のカード：<strong class="text-white text-lg">1</strong>
+                </p>
+                <div class="p-2.5 rounded-lg font-bold text-base" id="result-verdict-box">
+                    だまし指摘：成功！
+                </div>
+            </div>
+
+            <!-- Damage Display Graphic -->
+            <div id="result-scores-container" class="space-y-2 max-h-40 overflow-y-auto bg-slate-950/40 p-3 rounded-xl border border-slate-800">
+                <!-- Players and hearts loaded dynamically -->
+            </div>
+
+            <!-- Next Action -->
+            <button id="btn-next-turn" onclick="nextTurn()" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-3 rounded-xl shadow-lg transition transform active:scale-95 text-md flex items-center justify-center space-x-2">
+                <span id="btn-next-turn-text">次のプレイへ進む</span>
+                <i class="fa-solid fa-circle-chevron-right"></i>
+            </button>
+        </div>
+
+        <!-- GAME OVER SCREEN -->
+        <div id="screen-game-over" class="hidden w-full max-w-md bg-slate-900/95 rounded-2xl p-8 border border-slate-800 shadow-2xl text-center space-y-6">
+            <div class="space-y-2">
+                <div class="text-7xl">🏆👑</div>
+                <span class="text-xs uppercase text-slate-400 tracking-wider">GAME OVER</span>
+                <h2 class="text-3xl font-extrabold gold-text font-serif" id="winner-announcement">プレイヤーA の勝利！</h2>
+            </div>
+
+            <!-- Final Scores -->
+            <div class="bg-slate-950/80 p-5 rounded-2xl border border-slate-800 space-y-4">
+                <h3 class="text-sm font-bold text-slate-400">最終ライフ残数</h3>
+                <div id="gameover-scores-container" class="grid grid-cols-2 gap-3">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Restart Button -->
+            <button onclick="restartGame()" class="w-full bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-slate-950 font-black py-3.5 rounded-xl shadow-lg transition transform active:scale-95">
+                もう一度遊ぶ
+            </button>
+        </div>
+
+    </main>
+
+    <!-- Footer with Players HUD (Visible during gameplay) -->
+    <footer id="game-hud" class="hidden w-full max-w-4xl mx-auto px-4 py-4 border-t border-slate-800/80 bg-slate-950/60 backdrop-blur-md">
+        <div id="hud-players-container" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <!-- Dynamic HUD Items populated based on count -->
+        </div>
+    </footer>
+
+    <!-- Script Logic -->
+    <script>
+        // Game Modes
+        let isOnline = false;
+
+        // Offline Game State
+        let player1 = { uid: 'offline-p1', name: "プレイヤーA", hearts: 3 };
+        let player2 = { uid: 'offline-p2', name: "プレイヤーB", hearts: 3 };
+        let offlinePlayers = [player1, player2];
+        let currentRound = 1;
+        let activePlayerIndex = 0; // index in offlinePlayers
+        let defendingPlayerIndex = 1;
+        let totalTurnsInRound = 0;
+
+        // Current Action State
+        let selectedCardType = null; // 'num' or 'conspiracy'
+        let selectedCardVal = null;  // 1-6 or 0
+        let declaredVal = null;      // 1-6
+
+        // Online Firebase Variables
+        let db = null;
+        let auth = null;
+        let currentUserId = null;
+        let currentRoomId = null;
+        let unsubscribeRoom = null;
+        let roomState = null; // Stored DB Room Snapshot
+
+        // Setup Firebase Configurations (ご提供いただいた設定値)
+        const appId = 'bluff-game-1d0e4'; // あなたのProject IDに変更
+        const firebaseConfig = {
+            apiKey: "AIzaSyCQD_5MyWU5Wn7LjRnfcU4MrF6rY_jdnRQ",
+            authDomain: "bluff-game-1d0e4.firebaseapp.com",
+            projectId: "bluff-game-1d0e4",
+            storageBucket: "bluff-game-1d0e4.firebasestorage.app",
+            messagingSenderId: "999747347474",
+            appId: "1:999747347474:web:191c7d07d49e018e3224cb"
+        };
+
+        // Window Load
+        window.addEventListener('load', async () => {
+            // Firebaseの初期化
+            try {
+                if (typeof firebase !== 'undefined') {
+                    const app = firebase.initializeApp(firebaseConfig);
+                    auth = firebase.auth();
+                    db = firebase.firestore();
+
+                    // 匿名認証の開始
+                    let user;
+                    const cred = await auth.signInAnonymously();
+                    user = cred.user;
+                    currentUserId = user.uid;
+                }
+            } catch (e) {
+                console.warn("Firebaseの初期化に失敗しました。オフラインモードのみ動作します。", e);
+            }
+        });
+
+        // Switch modes UI
+        function switchMode(mode) {
+            const tabOff = document.getElementById('tab-offline');
+            const tabOn = document.getElementById('tab-online');
+            const formOff = document.getElementById('form-offline');
+            const formOn = document.getElementById('form-online');
+
+            if (mode === 'offline') {
+                isOnline = false;
+                tabOff.className = "py-2.5 rounded-lg text-sm font-bold transition-all bg-amber-500 text-slate-950";
+                tabOn.className = "py-2.5 rounded-lg text-sm font-bold transition-all text-slate-400 hover:text-white";
+                formOff.classList.remove('hidden');
+                formOn.classList.add('hidden');
+                document.getElementById('online-badge').classList.add('hidden');
+            } else {
+                isOnline = true;
+                tabOn.className = "py-2.5 rounded-lg text-sm font-bold transition-all bg-amber-500 text-slate-950";
+                tabOff.className = "py-2.5 rounded-lg text-sm font-bold transition-all text-slate-400 hover:text-white";
+                formOn.classList.remove('hidden');
+                formOff.classList.add('hidden');
+                document.getElementById('online-badge').classList.remove('hidden');
+            }
+        }
+
+        // ==========================================
+        //               OFFLINE ENGINE
+        // ==========================================
+
+        function startOfflineGame() {
+            const p1Val = document.getElementById('p1-name-input').value.trim();
+            const p2Val = document.getElementById('p2-name-input').value.trim();
+            
+            player1.name = p1Val !== "" ? p1Val : "プレイヤーA";
+            player2.name = p2Val !== "" ? p2Val : "プレイヤーB";
+            player1.hearts = 3;
+            player2.hearts = 3;
+
+            offlinePlayers = [player1, player2];
+            currentRound = 1;
+            totalTurnsInRound = 0;
+            
+            activePlayerIndex = Math.random() < 0.5 ? 0 : 1;
+            defendingPlayerIndex = activePlayerIndex === 0 ? 1 : 0;
+
+            document.getElementById('screen-start').classList.add('hidden');
+            document.getElementById('game-hud').classList.remove('hidden');
+            
+            updateHUD(offlinePlayers);
+            showTransitionScreen();
+        }
+
+        function showTransitionScreen() {
+            hideAllScreens();
+            const activeName = offlinePlayers[activePlayerIndex].name;
+            document.getElementById('next-player-title').textContent = `${activeName} の番です`;
+            document.getElementById('screen-transition').classList.remove('hidden');
+        }
+
+        function proceedToTurn() {
+            hideAllScreens();
+            setupCardScreen(offlinePlayers[activePlayerIndex].name);
+            document.getElementById('screen-choose-card').classList.remove('hidden');
+        }
+
+        function setupCardScreen(playerName) {
+            document.getElementById('active-player-name').textContent = playerName;
+            selectedCardType = null;
+            selectedCardVal = null;
+            declaredVal = null;
+
+            const cards = document.querySelectorAll('.game-card');
+            cards.forEach(card => card.classList.remove('selected'));
+
+            document.getElementById('declaration-panel').classList.add('hidden');
+            
+            const decButtons = document.querySelectorAll('.dec-btn');
+            decButtons.forEach(btn => {
+                btn.className = "dec-btn bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg border border-slate-700 transition";
+            });
+
+            const submitBtn = document.getElementById('btn-submit-card');
+            submitBtn.disabled = true;
+            submitBtn.className = "w-full bg-slate-800 text-slate-500 font-bold py-3 rounded-xl cursor-not-allowed transition";
+            
+            document.getElementById('selected-card-preview').textContent = "未選択";
+        }
+
+        function selectCard(type, val) {
+            selectedCardType = type;
+            selectedCardVal = val;
+            
+            const cards = document.querySelectorAll('.game-card');
+            cards.forEach(card => card.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+
+            document.getElementById('declaration-panel').classList.remove('hidden');
+
+            const previewText = type === 'conspiracy' ? "🔮 陰謀 (罠)" : `🔢 数字の [ ${val} ]`;
+            const previewEl = document.getElementById('selected-card-preview');
+            previewEl.textContent = previewText;
+            if (type === 'conspiracy') {
+                previewEl.className = "text-purple-400 font-bold";
+            } else {
+                previewEl.className = "text-amber-400 font-bold";
+            }
+
+            if (type === 'num') {
+                setDeclaration(val);
+            } else {
+                declaredVal = null;
+                const decButtons = document.querySelectorAll('.dec-btn');
+                decButtons.forEach(btn => {
+                    btn.className = "dec-btn bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg border border-slate-700 transition";
+                });
+                
+                const submitBtn = document.getElementById('btn-submit-card');
+                submitBtn.disabled = true;
+                submitBtn.className = "w-full bg-slate-800 text-slate-500 font-bold py-3 rounded-xl cursor-not-allowed transition";
+            }
+        }
+
+        function setDeclaration(val) {
+            declaredVal = val;
+            
+            const decButtons = document.querySelectorAll('.dec-btn');
+            decButtons.forEach((btn, index) => {
+                if (index + 1 === val) {
+                    btn.className = "dec-btn bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-2.5 rounded-lg border border-amber-400 transition transform scale-105 shadow-md";
+                } else {
+                    btn.className = "dec-btn bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg border border-slate-700 transition";
+                }
+            });
+
+            const submitBtn = document.getElementById('btn-submit-card');
+            submitBtn.disabled = false;
+            submitBtn.className = "w-full bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-slate-950 font-black py-3 rounded-xl shadow-lg transition transform active:scale-95 cursor-pointer";
+        }
+
+        function submitCardAction() {
+            if (isOnline) {
+                commitOnlineCard();
+                return;
+            }
+
+            const defName = offlinePlayers[defendingPlayerIndex].name;
+            const attName = offlinePlayers[activePlayerIndex].name;
+
+            document.getElementById('defender-player-name').textContent = defName;
+            document.getElementById('attacker-player-name').textContent = attName;
+            document.getElementById('declared-value').textContent = declaredVal;
+
+            hideAllScreens();
+            document.getElementById('screen-challenge').classList.remove('hidden');
+        }
+
+        function reactToCard(didChallenge) {
+            if (isOnline) {
+                commitOnlineReaction(didChallenge);
+                return;
+            }
+
+            let isLie = false;
+            if (selectedCardType === 'conspiracy') {
+                isLie = true;
+            } else if (selectedCardType === 'num' && selectedCardVal !== declaredVal) {
+                isLie = true;
+            }
+
+            let attackerDamage = 0;
+            let defenderDamage = 0;
+            let verdictTitle = "";
+            let verdictClass = "";
+            let explanation = "";
+
+            const attackerName = offlinePlayers[activePlayerIndex].name;
+            const defenderName = offlinePlayers[defendingPlayerIndex].name;
+
+            if (didChallenge) {
+                if (selectedCardType === 'conspiracy') {
+                    defenderDamage = 2;
+                    verdictTitle = "陰謀の罠 発動！";
+                    verdictClass = "bg-purple-900/80 border border-purple-500 text-purple-200";
+                    explanation = `
+                        ${attackerName}が裏向きで出したのは<strong>【 陰謀 】</strong>カードでした！<br>
+                        ${defenderName}はだましを指摘しましたが、罠に掛かってしまいました。<br>
+                        <span class="text-red-400 font-bold">${defenderName} は 2 ダメージ！</span>
+                    `;
+                } else if (isLie) {
+                    attackerDamage = 1;
+                    verdictTitle = "だまし指摘：成功！";
+                    verdictClass = "bg-emerald-900/80 border border-emerald-500 text-emerald-200";
+                    explanation = `
+                        ${attackerName}の宣言：<strong>「 ${declaredVal} 」</strong><br>
+                        実際のカード：<strong>「 ${selectedCardVal} 」</strong> (だまし)<br>
+                        ${defenderName}が見事、嘘を見破りました！<br>
+                        <span class="text-red-400 font-bold">${attackerName} は 1 ダメージ！</span>
+                    `;
+                } else {
+                    defenderDamage = 1;
+                    verdictTitle = "だまし指摘：失敗！";
+                    verdictClass = "bg-red-900/80 border border-red-500 text-red-200";
+                    explanation = `
+                        ${attackerName}の宣言：<strong>「 ${declaredVal} 」</strong><br>
+                        実際のカード：<strong>「 ${selectedCardVal} 」</strong> (真実)<br>
+                        ${attackerName}は本当に正直にカードを出していました！<br>
+                        <span class="text-red-400 font-bold">${defenderName} は 1 ダメージ！</span>
+                    `;
+                }
+            } else {
+                if (selectedCardType === 'conspiracy') {
+                    attackerDamage = 1;
+                    verdictTitle = "陰謀失敗 (スルー)";
+                    verdictClass = "bg-amber-900/80 border border-amber-600 text-amber-200";
+                    explanation = `
+                        ${attackerName}は<strong>【 陰謀 】</strong>を仕掛けましたが、スルーされました。<br>
+                        陰謀が誰にも引っかからなかったため、仕掛けた自身がペナルティを受けます。<br>
+                        <span class="text-red-400 font-bold">${attackerName} は 1 ダメージ！</span>
+                    `;
+                } else if (isLie) {
+                    verdictTitle = "だまし成功！";
+                    verdictClass = "bg-slate-800 border border-slate-700 text-slate-300";
+                    explanation = `
+                        ${attackerName}の宣言：<strong>「 ${declaredVal} 」</strong><br>
+                        実際のカード：<strong>「 ${selectedCardVal} 」</strong> (だまし)<br>
+                        ${defenderName}は信じることを選び、嘘は見破られませんでした。<br>
+                        <span class="text-slate-400 font-semibold">ダメージは発生しません。</span>
+                    `;
+                } else {
+                    verdictTitle = "平和な信頼関係";
+                    verdictClass = "bg-slate-800 border border-slate-700 text-slate-300";
+                    explanation = `
+                        ${attackerName}の宣言：<strong>「 ${declaredVal} MANUAL 」</strong><br>
+                        実際のカード：<strong>「 ${selectedCardVal} 」</strong> (真実)<br>
+                        お互いに正直に、平穏にゲームが流れます。<br>
+                        <span class="text-slate-400 font-semibold">ダメージは発生しません。</span>
+                    `;
+                }
+            }
+
+            offlinePlayers[activePlayerIndex].hearts = Math.max(0, offlinePlayers[activePlayerIndex].hearts - attackerDamage);
+            offlinePlayers[defendingPlayerIndex].hearts = Math.max(0, offlinePlayers[defendingPlayerIndex].hearts - defenderDamage);
+
+            showResultScreen(verdictTitle, verdictClass, explanation, offlinePlayers);
+        }
+
+        function showResultScreen(verdictTitle, verdictClass, explanation, playerList) {
+            const revCard = document.getElementById('revealed-card');
+            const revCardVal = document.getElementById('revealed-card-val');
+            const revCardType = document.getElementById('revealed-card-type');
+
+            if (selectedCardType === 'conspiracy') {
+                revCardVal.textContent = "🕸️";
+                revCardType.textContent = "陰謀 (罠)";
+                revCard.className = "game-card border-purple-500 w-36 aspect-[3/4] rounded-2xl flex flex-col items-center justify-between p-4 shadow-[0_0_25px_rgba(168,85,247,0.4)] bg-purple-950/40";
+                revCardType.className = "text-xs text-purple-400 font-bold";
+            } else {
+                revCardVal.textContent = selectedCardVal;
+                revCardType.textContent = "数字カード";
+                revCard.className = "game-card border-amber-500 w-36 aspect-[3/4] rounded-2xl flex flex-col items-center justify-between p-4 shadow-[0_0_20px_rgba(245,158,11,0.2)] bg-slate-900";
+                revCardType.className = "text-xs text-amber-500/80";
+            }
+
+            document.getElementById('result-status-title').textContent = verdictTitle;
+            document.getElementById('result-verdict-box').textContent = verdictTitle;
+            document.getElementById('result-verdict-box').className = `p-2.5 rounded-lg font-bold text-base ${verdictClass} mt-2`;
+            document.getElementById('result-text-detail').innerHTML = explanation;
+
+            const scoresBox = document.getElementById('result-scores-container');
+            scoresBox.innerHTML = '';
+            playerList.forEach(p => {
+                const item = document.createElement('div');
+                item.className = "flex justify-between items-center text-sm p-1";
+                item.innerHTML = `
+                    <span class="text-slate-300 font-semibold">${p.name}</span>
+                    <span class="text-md flex space-x-0.5">${getHeartString(p.hearts)}</span>
+                `;
+                scoresBox.appendChild(item);
+            });
+
+            updateHUD(playerList);
+
+            const nextBtn = document.getElementById('btn-next-turn');
+            const nextBtnText = document.getElementById('btn-next-turn-text');
+            if (isOnline) {
+                const isHost = roomState && roomState.players[0].uid === currentUserId;
+                if (isHost) {
+                    nextBtn.disabled = false;
+                    nextBtn.className = "w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-3 rounded-xl shadow-lg transition transform active:scale-95 text-md flex items-center justify-center space-x-2";
+                    nextBtnText.textContent = "次のプレイへ進む (ホスト操作)";
+                } else {
+                    nextBtn.disabled = true;
+                    nextBtn.className = "w-full bg-slate-800 text-slate-500 font-bold py-3 rounded-xl cursor-not-allowed text-md flex items-center justify-center space-x-2";
+                    nextBtnText.textContent = "ホストが次へ進めるのを待っています...";
+                }
+            } else {
+                nextBtn.disabled = false;
+                nextBtn.className = "w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-3 rounded-xl shadow-lg transition transform active:scale-95 text-md flex items-center justify-center space-x-2";
+                nextBtnText.textContent = "次のプレイへ進む";
+            }
+
+            hideAllScreens();
+            document.getElementById('screen-result').classList.remove('hidden');
+        }
+
+        function nextTurn() {
+            if (isOnline) {
+                advanceOnlineTurn();
+                return;
+            }
+
+            if (offlinePlayers[0].hearts <= 0 || offlinePlayers[1].hearts <= 0) {
+                endGame(offlinePlayers);
+                return;
+            }
+
+            totalTurnsInRound++;
+
+            if (totalTurnsInRound >= 2) {
+                currentRound++;
+                totalTurnsInRound = 0;
+
+                if (currentRound > 4) {
+                    endGame(offlinePlayers);
+                    return;
+                }
+            }
+
+            const temp = activePlayerIndex;
+            activePlayerIndex = defendingPlayerIndex;
+            defendingPlayerIndex = temp;
+
+            updateHUD(offlinePlayers);
+            showTransitionScreen();
+        }
+
+        function updateHUD(playerList) {
+            document.getElementById('current-round').textContent = currentRound;
+            const container = document.getElementById('hud-players-container');
+            container.innerHTML = '';
+
+            playerList.forEach((p, idx) => {
+                const isCurrentActive = isOnline ? 
+                    (roomState && idx === roomState.activePlayerIndex) : 
+                    (idx === activePlayerIndex);
+
+                const cardStyle = isCurrentActive ? 
+                    "p-3 rounded-xl bg-slate-900 border-2 border-amber-500 shadow-lg flex flex-col justify-between" : 
+                    "p-3 rounded-xl bg-slate-900/50 border border-slate-800 opacity-60 flex flex-col justify-between";
+
+                const tagText = isCurrentActive ? "手番 (出題)" : "";
+
+                const playerItem = document.createElement('div');
+                playerItem.className = cardStyle;
+                playerItem.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold text-sm text-slate-300 truncate max-w-[100px]">${p.name}</span>
+                        <span class="text-[10px] text-amber-500 font-semibold">${tagText}</span>
+                    </div>
+                    <div class="flex space-x-0.5 mt-2 text-md">
+                        ${getHeartString(p.hearts)}
+                    </div>
+                `;
+                container.appendChild(playerItem);
+            });
+        }
+
+        function getHeartString(count) {
+            let heartHTML = '';
+            for (let i = 0; i < 3; i++) {
+                if (i < count) {
+                    heartHTML += '<i class="fa-solid fa-heart text-red-500 drop-shadow-[0_0_4px_rgba(239,68,68,0.5)]"></i>';
+                } else {
+                    heartHTML += '<i class="fa-regular fa-heart text-slate-700"></i>';
+                }
+            }
+            return heartHTML;
+        }
+
+        function endGame(playerList) {
+            hideAllScreens();
+            document.getElementById('game-hud').classList.add('hidden');
+
+            const winnerAnnounce = document.getElementById('winner-announcement');
+            const finalScoresBox = document.getElementById('gameover-scores-container');
+            finalScoresBox.innerHTML = '';
+
+            playerList.forEach(p => {
+                const cell = document.createElement('div');
+                cell.className = "p-3 bg-slate-900 rounded-xl border border-slate-800";
+                cell.innerHTML = `
+                    <p class="text-xs text-slate-400 truncate">${p.name}</p>
+                    <p class="text-md font-bold text-slate-200 mt-1">${getHeartString(p.hearts)}</p>
+                `;
+                finalScoresBox.appendChild(cell);
+            });
+
+            let maxHearts = -1;
+            let winners = [];
+            playerList.forEach(p => {
+                if (p.hearts > maxHearts) {
+                    maxHearts = p.hearts;
+                    winners = [p.name];
+                } else if (p.hearts === maxHearts) {
+                    winners.push(p.name);
+                }
+            });
+
+            if (winners.length === 1) {
+                winnerAnnounce.innerHTML = `🏆 ${winners[0]} の勝利！`;
+            } else {
+                winnerAnnounce.innerHTML = `🤝 引き分け！ (同点勝負)`;
+            }
+
+            document.getElementById('screen-game-over').classList.remove('hidden');
+        }
+
+        function restartGame() {
+            if (isOnline) {
+                leaveOnlineRoom();
+            }
+            hideAllScreens();
+            document.getElementById('screen-start').classList.remove('hidden');
+        }
+
+
+        // ==========================================
+        //               ONLINE ENGINE (Firebase)
+        // ==========================================
+
+        function checkFirebaseConnection() {
+            if (!db || !auth) {
+                alert("インターネット、またはFirebaseの設定が読み込めていません。オフラインモードでプレイしてください。");
+                return false;
+            }
+            return true;
+        }
+
+        async function createOnlineRoom() {
+            if (!checkFirebaseConnection()) return;
+
+            const usernameInput = document.getElementById('online-username').value.trim();
+            const username = usernameInput !== "" ? usernameInput : "ホスト";
+
+            if (!auth.currentUser) {
+                alert("プレイヤー認証中です。しばらくお待ちください。");
+                return;
+            }
+
+            const roomId = Math.floor(100000 + Math.random() * 900000).toString();
+            currentRoomId = roomId;
+
+            // Strict Path (Rule 1)
+            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${roomId}`);
+
+            const initialData = {
+                roomId: roomId,
+                status: 'waiting',
+                currentRound: 1,
+                activePlayerIndex: 0,
+                defendingPlayerIndex: 1,
+                selectedCardType: null,
+                selectedCardVal: null,
+                declaredVal: null,
+                lastAction: 'init',
+                players: [{
+                    uid: auth.currentUser.uid,
+                    name: username,
+                    hearts: 3,
+                    ready: true
+                }],
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            await roomRef.set(initialData);
+
+            setupRoomListener(roomId);
+            showLobby(roomId, true);
+        }
+
+        async function joinOnlineRoom() {
+            if (!checkFirebaseConnection()) return;
+
+            const usernameInput = document.getElementById('online-username').value.trim();
+            const username = usernameInput !== "" ? usernameInput : "ゲスト";
+            const roomId = document.getElementById('room-key-input').value.trim().toUpperCase();
+
+            if (roomId.length === 0) {
+                alert("ルームキーを入力してください。");
+                return;
+            }
+
+            if (!auth.currentUser) {
+                alert("プレイヤー認証中です。しばらくお待ちください。");
+                return;
+            }
+
+            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${roomId}`);
+            const doc = await roomRef.get();
+
+            if (!doc.exists) {
+                alert("入力されたルームが見つかりません。");
+                return;
+            }
+
+            const data = doc.data();
+            if (data.status !== 'waiting') {
+                alert("このゲームは既に開始されているか、終了しています。");
+                return;
+            }
+
+            if (data.players.length >= 4) {
+                alert("ルームが満員です（最大4人）。");
+                return;
+            }
+
+            const updatedPlayers = [...data.players, {
+                uid: auth.currentUser.uid,
+                name: username,
+                hearts: 3,
+                ready: true
+            }];
+
+            await roomRef.update({
+                players: updatedPlayers,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            currentRoomId = roomId;
+            setupRoomListener(roomId);
+            showLobby(roomId, false);
+        }
+
+        function showLobby(roomId, isHost) {
+            hideAllScreens();
+            document.getElementById('lobby-room-key').textContent = roomId;
+            document.getElementById('screen-lobby').classList.remove('hidden');
+
+            const startBtn = document.getElementById('btn-lobby-start');
+            const waitMsg = document.getElementById('lobby-wait-msg');
+
+            if (isHost) {
+                startBtn.classList.remove('hidden');
+                waitMsg.classList.add('hidden');
+            } else {
+                startBtn.classList.add('hidden');
+                waitMsg.classList.remove('hidden');
+            }
+        }
+
+        function setupRoomListener(roomId) {
+            if (unsubscribeRoom) unsubscribeRoom();
+
+            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${roomId}`);
+            
+            unsubscribeRoom = roomRef.onSnapshot(doc => {
+                if (!doc.exists) return;
+
+                const data = doc.data();
+                roomState = data;
+                currentRound = data.currentRound;
+
+                if (data.status === 'waiting') {
+                    renderLobbyList(data.players);
+                } else if (data.status === 'playing') {
+                    runOnlineGameLoop(data);
+                } else if (data.status === 'showing_result') {
+                    selectedCardType = data.selectedCardType;
+                    selectedCardVal = data.selectedCardVal;
+                    declaredVal = data.declaredVal;
+                    
+                    showResultScreen(
+                        data.actionResult.verdictTitle,
+                        data.actionResult.verdictClass,
+                        data.actionResult.explanation,
+                        data.players
+                    );
+                } else if (data.status === 'gameover') {
+                    endGame(data.players);
+                }
+            }, error => {
+                console.error("通信エラーが発生しました: ", error);
+            });
+        }
+
+        function renderLobbyList(players) {
+            document.getElementById('lobby-player-count').textContent = players.length;
+            const container = document.getElementById('lobby-player-list');
+            container.innerHTML = '';
+
+            players.forEach((p, idx) => {
+                const el = document.createElement('div');
+                el.className = "flex justify-between items-center bg-slate-950 p-3 rounded-lg border border-slate-800/80 text-sm";
+                
+                const isYou = p.uid === currentUserId;
+                const isHost = idx === 0;
+
+                el.innerHTML = `
+                    <div class="flex items-center space-x-2">
+                        <span class="text-slate-500 font-mono">#${idx + 1}</span>
+                        <span class="font-bold text-slate-200">${p.name} ${isYou ? '<span class="text-[10px] bg-slate-800 text-amber-400 px-1.5 py-0.5 rounded ml-1 font-normal">あなた</span>' : ''}</span>
+                    </div>
+                    <div>
+                        ${isHost ? '<span class="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded font-bold">ホスト</span>' : '<span class="text-[10px] bg-teal-500/10 text-teal-400 border border-teal-500/30 px-2 py-0.5 rounded font-bold">参戦</span>'}
+                    </div>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        async function startOnlineMatch() {
+            if (!roomState || roomState.players.length < 2) {
+                alert("対戦相手が足りません。2人以上で開始できます。");
+                return;
+            }
+
+            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
+            
+            const starter = Math.floor(Math.random() * roomState.players.length);
+            const defender = (starter + 1) % roomState.players.length;
+
+            await roomRef.update({
+                status: 'playing',
+                activePlayerIndex: starter,
+                defendingPlayerIndex: defender,
+                lastAction: 'start',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+
+        function runOnlineGameLoop(data) {
+            document.getElementById('game-hud').classList.remove('hidden');
+            updateHUD(data.players);
+
+            const activePlayer = data.players[data.activePlayerIndex];
+            const defenderPlayer = data.players[data.defendingPlayerIndex];
+
+            const isMyTurnToBluff = activePlayer.uid === currentUserId;
+            const isMyTurnToChallenge = defenderPlayer.uid === currentUserId;
+
+            hideAllScreens();
+
+            if (data.lastAction === 'start' || data.lastAction === 'next_turn') {
+                if (isMyTurnToBluff) {
+                    setupCardScreen(activePlayer.name);
+                    document.getElementById('screen-choose-card').classList.remove('hidden');
+                } else {
+                    document.getElementById('online-wait-title').textContent = `${activePlayer.name} の思考中...`;
+                    document.getElementById('online-wait-subtitle').textContent = `伏せカードを選んで宣言するのを待っています。`;
+                    document.getElementById('screen-online-wait').classList.remove('hidden');
+                }
+            } else if (data.lastAction === 'commit_card') {
+                if (isMyTurnToChallenge) {
+                    document.getElementById('defender-player-name').textContent = defenderPlayer.name;
+                    document.getElementById('attacker-player-name').textContent = activePlayer.name;
+                    document.getElementById('declared-value').textContent = data.declaredVal;
+                    document.getElementById('screen-challenge').classList.remove('hidden');
+                } else {
+                    document.getElementById('online-wait-title').textContent = `${defenderPlayer.name} の決断待ち...`;
+                    document.getElementById('online-wait-subtitle').textContent = `${activePlayer.name}の「宣言：${data.declaredVal}」に対して、信じるか見破るか決断をしています。`;
+                    document.getElementById('screen-online-wait').classList.remove('hidden');
+                }
+            }
+        }
+
+        async function commitOnlineCard() {
+            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
+            
+            await roomRef.update({
+                selectedCardType: selectedCardType,
+                selectedCardVal: selectedCardVal,
+                declaredVal: declaredVal,
+                lastAction: 'commit_card',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+
+        async function commitOnlineReaction(didChallenge) {
+            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
+            
+            let isLie = false;
+            if (roomState.selectedCardType === 'conspiracy') {
+                isLie = true;
+            } else if (roomState.selectedCardType === 'num' && roomState.selectedCardVal !== roomState.declaredVal) {
+                isLie = true;
+            }
+
+            let attackerDamage = 0;
+            let defenderDamage = 0;
+            let verdictTitle = "";
+            let verdictClass = "";
+            let explanation = "";
+
+            const attackerName = roomState.players[roomState.activePlayerIndex].name;
+            const defenderName = roomState.players[roomState.defendingPlayerIndex].name;
+
+            if (didChallenge) {
+                if (roomState.selectedCardType === 'conspiracy') {
+                    defenderDamage = 2;
+                    verdictTitle = "陰謀の罠 発動！";
+                    verdictClass = "bg-purple-900/80 border border-purple-500 text-purple-200";
+                    explanation = `
+                        ${attackerName}が裏向きで出したのは<strong>【 陰謀 】</strong>カードでした！<br>
+                        ${defenderName}はだましを指摘しましたが、罠に掛かってしまいました。<br>
+                        <span class="text-red-400 font-bold">${defenderName} は 2 ダメージ！</span>
+                    `;
+                } else if (isLie) {
+                    attackerDamage = 1;
+                    verdictTitle = "だまし指摘：成功！";
+                    verdictClass = "bg-emerald-900/80 border border-emerald-500 text-emerald-200";
+                    explanation = `
+                        ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
+                        実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (だまし)<br>
+                        ${defenderName}が見事、嘘を見破りました！<br>
+                        <span class="text-red-400 font-bold">${attackerName} は 1 ダメージ！</span>
+                    `;
+                } else {
+                    defenderDamage = 1;
+                    verdictTitle = "だまし指摘：失敗！";
+                    verdictClass = "bg-red-900/80 border border-red-500 text-red-200";
+                    explanation = `
+                        ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
+                        実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (真実)<br>
+                        ${attackerName}は本当に正直にカードを出していました！<br>
+                        <span class="text-red-400 font-bold">${defenderName} は 1 ダメージ！</span>
+                    `;
+                }
+            } else {
+                if (roomState.selectedCardType === 'conspiracy') {
+                    attackerDamage = 1;
+                    verdictTitle = "陰謀失敗 (スルー)";
+                    verdictClass = "bg-amber-900/80 border border-amber-600 text-amber-200";
+                    explanation = `
+                        ${attackerName}は<strong>【 陰謀 】</strong>を仕掛けましたが、スルーされました。<br>
+                        陰謀が誰にも引っかからなかったため、仕掛けた自身がペナルティを受けます。<br>
+                        <span class="text-red-400 font-bold">${attackerName} は 1 ダメージ！</span>
+                    `;
+                } else if (isLie) {
+                    verdictTitle = "だまし成功！";
+                    verdictClass = "bg-slate-800 border border-slate-700 text-slate-300";
+                    explanation = `
+                        ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
+                        実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (だまし)<br>
+                        ${defenderName}は信じることを選び、嘘は見破られませんでした。<br>
+                        <span class="text-slate-400 font-semibold">ダメージは発生しません。</span>
+                    `;
+                } else {
+                    verdictTitle = "平和な信頼関係";
+                    verdictClass = "bg-slate-800 border border-slate-700 text-slate-300";
+                    explanation = `
+                        ${attackerName}の宣言：<strong>「 ${roomState.declaredVal} 」</strong><br>
+                        実際のカード：<strong>「 ${roomState.selectedCardVal} 」</strong> (真実)<br>
+                        お互いに正直に、平穏にゲームが流れます。<br>
+                        <span class="text-slate-400 font-semibold">ダメージは発生しません。</span>
+                    `;
+                }
+            }
+
+            const updatedPlayers = roomState.players.map((p, idx) => {
+                let currentHearts = p.hearts;
+                if (idx === roomState.activePlayerIndex) {
+                    currentHearts = Math.max(0, currentHearts - attackerDamage);
+                }
+                if (idx === roomState.defendingPlayerIndex) {
+                    currentHearts = Math.max(0, currentHearts - defenderDamage);
+                }
+                return { ...p, hearts: currentHearts };
+            });
+
+            await roomRef.update({
+                status: 'showing_result',
+                players: updatedPlayers,
+                actionResult: {
+                    verdictTitle: verdictTitle,
+                    verdictClass: verdictClass,
+                    explanation: explanation
+                },
+                lastAction: 'resolve',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+
+        async function advanceOnlineTurn() {
+            const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
+
+            const someoneDied = roomState.players.some(p => p.hearts <= 0);
+            
+            const nextActiveIndex = (roomState.activePlayerIndex + 1) % roomState.players.length;
+            const nextDefendingIndex = (nextActiveIndex + 1) % roomState.players.length;
+
+            let nextRound = roomState.currentRound;
+            if (nextActiveIndex === 0) {
+                nextRound += 1;
+            }
+
+            if (someoneDied || nextRound > 4) {
+                await roomRef.update({
+                    status: 'gameover',
+                    lastAction: 'gameover',
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                return;
+            }
+
+            await roomRef.update({
+                status: 'playing',
+                currentRound: nextRound,
+                activePlayerIndex: nextActiveIndex,
+                defendingPlayerIndex: nextDefendingIndex,
+                lastAction: 'next_turn',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+
+        async function leaveOnlineRoom() {
+            if (unsubscribeRoom) unsubscribeRoom();
+            
+            if (currentRoomId && auth.currentUser) {
+                const roomRef = db.doc(`artifacts/${appId}/public/data/rooms/${currentRoomId}`);
+                const doc = await roomRef.get();
+                if (doc.exists) {
+                    const data = doc.data();
+                    const filtered = data.players.filter(p => p.uid !== auth.currentUser.uid);
+                    
+                    if (filtered.length === 0) {
+                        await roomRef.delete();
+                    } else {
+                        await roomRef.update({
+                            players: filtered
+                        });
+                    }
+                }
+            }
+            
+            currentRoomId = null;
+            roomState = null;
+            document.getElementById('online-badge').classList.add('hidden');
+            restartGame();
+        }
+
+        function hideAllScreens() {
+            document.getElementById('screen-start').classList.add('hidden');
+            document.getElementById('screen-lobby').classList.add('hidden');
+            document.getElementById('screen-transition').classList.add('hidden');
+            document.getElementById('screen-online-wait').classList.add('hidden');
+            document.getElementById('screen-choose-card').classList.add('hidden');
+            document.getElementById('screen-challenge').classList.add('hidden');
+            document.getElementById('screen-result').classList.add('hidden');
+            document.getElementById('screen-game-over').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
